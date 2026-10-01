@@ -1,0 +1,167 @@
+name: Backend Continuous Deployment
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'starter/backend/**'
+      - '.github/workflows/backend-cd.yaml'
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+  EKS_CLUSTER_NAME: cluster
+  ECR_REPOSITORY: backend
+  KUBECTL_VERSION: v1.25.16
+  KUSTOMIZE_VERSION: 5.4.3
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: starter/backend
+
+    env:
+      PIPENV_VENV_IN_PROJECT: 1
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Pipenv
+        run: pip install pipenv
+
+      - name: Cache virtualenv
+        uses: actions/cache@v4
+        with:
+          path: starter/backend/.venv
+          key: ${{ runner.os }}-pipenv-${{ hashFiles('starter/backend/Pipfile.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pipenv-
+
+      - name: Install dependencies
+        run: pipenv install --dev
+
+      - name: Run lint
+        run: pipenv run lint
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: starter/backend
+
+    env:
+      PIPENV_VENV_IN_PROJECT: 1
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Pipenv
+        run: pip install pipenv
+
+      - name: Cache virtualenv
+        uses: actions/cache@v4
+        with:
+          path: starter/backend/.venv
+          key: ${{ runner.os }}-pipenv-${{ hashFiles('starter/backend/Pipfile.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pipenv-
+
+      - name: Install dependencies
+        run: pipenv install --dev
+
+      - name: Run tests
+        run: pipenv run test
+
+  deploy:
+    name: Build and Deploy
+    runs-on: ubuntu-latest
+
+    # Build only runs once lint and test have both passed.
+    needs:
+      - lint
+      - test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build Docker image
+        working-directory: starter/backend
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          docker build --tag "$REGISTRY/$ECR_REPOSITORY:${{ github.sha }}" .
+
+      - name: Push Docker image to ECR
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          docker push "$REGISTRY/$ECR_REPOSITORY:${{ github.sha }}"
+
+      # The cluster runs Kubernetes 1.25, so pin kubectl rather than using the
+      # much newer version preinstalled on the runner (version skew is ±1 minor).
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: ${{ env.KUBECTL_VERSION }}
+
+      - name: Setup kustomize
+        run: |
+          curl -sSLo kustomize.tar.gz \
+            "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz"
+          tar -xzf kustomize.tar.gz
+          sudo install -m 0755 kustomize /usr/local/bin/kustomize
+          kustomize version
+
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig \
+            --name "$EKS_CLUSTER_NAME" \
+            --region "$AWS_REGION"
+
+      - name: Apply Kubernetes manifests
+        working-directory: starter/backend/k8s
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          kustomize edit set image backend="$REGISTRY/$ECR_REPOSITORY:${{ github.sha }}"
+          kustomize build | kubectl apply -f -
+
+      - name: Wait for rollout
+        run: |
+          kubectl rollout status deployment/backend --timeout=5m
+
+      - name: Show deployed resources
+        run: |
+          kubectl get deployment backend -o wide
+          kubectl get svc backend -o wide

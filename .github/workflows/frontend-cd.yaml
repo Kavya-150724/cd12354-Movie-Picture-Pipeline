@@ -1,0 +1,160 @@
+name: Frontend Continuous Deployment
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'starter/frontend/**'
+      - '.github/workflows/frontend-cd.yaml'
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+  EKS_CLUSTER_NAME: cluster
+  ECR_REPOSITORY: frontend
+  KUBECTL_VERSION: v1.25.16
+  KUSTOMIZE_VERSION: 5.4.3
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: starter/frontend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup NodeJS
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: 'starter/frontend/.nvmrc'
+          cache: 'npm'
+          cache-dependency-path: 'starter/frontend/package-lock.json'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run lint
+        run: npm run lint
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: starter/frontend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup NodeJS
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: 'starter/frontend/.nvmrc'
+          cache: 'npm'
+          cache-dependency-path: 'starter/frontend/package-lock.json'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: CI=true npm test
+
+  deploy:
+    name: Build and Deploy
+    runs-on: ubuntu-latest
+
+    # Build only runs once lint and test have both passed.
+    needs:
+      - lint
+      - test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # The cluster runs Kubernetes 1.25, so pin kubectl rather than using the
+      # much newer version preinstalled on the runner (version skew is ±1 minor).
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: ${{ env.KUBECTL_VERSION }}
+
+      - name: Setup kustomize
+        run: |
+          curl -sSLo kustomize.tar.gz \
+            "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz"
+          tar -xzf kustomize.tar.gz
+          sudo install -m 0755 kustomize /usr/local/bin/kustomize
+          kustomize version
+
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig \
+            --name "$EKS_CLUSTER_NAME" \
+            --region "$AWS_REGION"
+
+      # REACT_APP_* variables are inlined into the JS bundle at build time, and
+      # that bundle runs in the visitor's browser. It therefore has to point at
+      # the backend's public LoadBalancer address, not at localhost.
+      - name: Resolve backend API URL
+        id: backend
+        run: |
+          HOST=$(kubectl get svc backend \
+            -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+          if [ -z "$HOST" ]; then
+            echo "::error::Backend service has no LoadBalancer address yet. Run the Backend Continuous Deployment workflow first, wait for the ELB to finish provisioning, then re-run this workflow."
+            exit 1
+          fi
+          echo "Backend API URL: http://$HOST"
+          echo "url=http://$HOST" >> "$GITHUB_OUTPUT"
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build Docker image
+        working-directory: starter/frontend
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          docker build \
+            --build-arg REACT_APP_MOVIE_API_URL="${{ steps.backend.outputs.url }}" \
+            --tag "$REGISTRY/$ECR_REPOSITORY:${{ github.sha }}" .
+
+      - name: Push Docker image to ECR
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          docker push "$REGISTRY/$ECR_REPOSITORY:${{ github.sha }}"
+
+      - name: Apply Kubernetes manifests
+        working-directory: starter/frontend/k8s
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          kustomize edit set image frontend="$REGISTRY/$ECR_REPOSITORY:${{ github.sha }}"
+          kustomize build | kubectl apply -f -
+
+      - name: Wait for rollout
+        run: |
+          kubectl rollout status deployment/frontend --timeout=5m
+
+      - name: Show deployed resources
+        run: |
+          kubectl get deployment frontend -o wide
+          kubectl get svc frontend -o wide
