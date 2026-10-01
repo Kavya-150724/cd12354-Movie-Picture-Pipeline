@@ -69,6 +69,14 @@ frontend:  d5b53abe4ad5e8f56d36e9b48c2e54fabda8af1e
 backend:   d5b53abe4ad5e8f56d36e9b48c2e54fabda8af1e
 ```
 
+### A note on later failed runs
+
+Any **Continuous Deployment** run dated after 1 October 2026 11:02 UTC fails at the deploy
+step. This is expected: the AWS lab infrastructure was destroyed after the evidence above was
+captured, as the project instructions require, so there is no longer a cluster to deploy to.
+In those runs the `lint`, `test` and image build steps still pass; only the steps that talk to
+EKS fail. The successful end-to-end runs are the ones from 10:52 to 10:59 UTC on 1 October.
+
 The full capture, including the live `/movies` JSON response, is in
 [screenshots/cluster-and-ecr.txt](screenshots/cluster-and-ecr.txt).
 
