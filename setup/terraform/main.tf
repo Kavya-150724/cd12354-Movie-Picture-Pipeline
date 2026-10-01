@@ -316,9 +316,16 @@ resource "aws_iam_user" "github_action_user" {
   name = "github-action-user"
 }
 
-resource "aws_iam_user_policy" "github_action_user_permission" {
-  user   = aws_iam_user.github_action_user.name
+# The lab role is denied iam:PutUserPolicy, so an inline policy fails.
+# Customer-managed policies are permitted, so attach one instead.
+resource "aws_iam_policy" "github_policy" {
+  name   = "mpp-github-action-policy"
   policy = data.aws_iam_policy_document.github_policy.json
+}
+
+resource "aws_iam_user_policy_attachment" "github_action_user_permission" {
+  user       = aws_iam_user.github_action_user.name
+  policy_arn = aws_iam_policy.github_policy.arn
 }
 
 data "aws_iam_policy_document" "github_policy" {
