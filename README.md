@@ -1,5 +1,80 @@
 # Movie Picture Pipeline
 
+**Repository:** https://github.com/Kavya-150724/cd12354-Movie-Picture-Pipeline
+
+---
+
+# Deployment Evidence
+
+Screenshots below were captured on **1 October 2026 at 11:02 UTC** from the running deployment
+on Amazon EKS (cluster `cluster`, Kubernetes 1.32, region `us-east-1`, account `364649219390`).
+
+The AWS lab infrastructure was destroyed immediately afterwards, as the project instructions
+require, so the URLs recorded here are no longer serving. The full run logs remain permanently
+visible in the
+[Actions tab](https://github.com/Kavya-150724/cd12354-Movie-Picture-Pipeline/actions),
+including the `kubectl` output printed at the end of each deployment.
+
+## Workflows
+
+| Workflow | File | Triggers |
+|---|---|---|
+| Frontend Continuous Integration | `.github/workflows/frontend-ci.yaml` | `pull_request` to `main`, manual |
+| Backend Continuous Integration  | `.github/workflows/backend-ci.yaml`  | `pull_request` to `main`, manual |
+| Frontend Continuous Deployment  | `.github/workflows/frontend-cd.yaml` | `push` to `main`, manual |
+| Backend Continuous Deployment   | `.github/workflows/backend-cd.yaml`  | `push` to `main`, manual |
+
+Each CI workflow runs `lint` and `test` as parallel jobs and gates `build` behind both.
+Each CD workflow repeats those checks, then builds, tags the image with the triggering commit
+SHA, pushes to Amazon ECR, and applies the Kubernetes manifests with `kustomize`.
+
+## All four workflows passing
+
+![GitHub Actions showing all four workflows with successful runs](screenshots/actions-all-green.jpg)
+
+## Frontend: movie list rendering
+
+URL at time of capture:
+`http://a53a83357edce41b6ba74346d6c6cc80-1937546710.us-east-1.elb.amazonaws.com`
+
+![Deployed frontend showing the movie list](screenshots/frontend-movie-list.jpg)
+
+## Backend: `/movies` returning JSON
+
+URL at time of capture:
+`http://ab8804e62f83b427ba17cca6b2216a3e-2089875488.us-east-1.elb.amazonaws.com/movies`
+
+![Deployed backend API returning movie JSON](screenshots/backend-movies-json.jpg)
+
+## Cluster state and ECR images
+
+```
+NAME                       READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/backend    1/1     1            1           6m51s
+deployment.apps/frontend   1/1     1            1           3m25s
+
+NAME                TYPE           EXTERNAL-IP                                                              PORT(S)
+service/backend     LoadBalancer   ab8804e62f83b427ba17cca6b2216a3e-2089875488.us-east-1.elb.amazonaws.com  80:32718/TCP
+service/frontend    LoadBalancer   a53a83357edce41b6ba74346d6c6cc80-1937546710.us-east-1.elb.amazonaws.com  80:31576/TCP
+
+NAME                            READY   STATUS    RESTARTS   AGE
+pod/backend-6f8ff95969-29wtg    1/1     Running   0          6m51s
+pod/frontend-84894f5789-7hph9   1/1     Running   0          3m25s
+```
+
+Images in Amazon ECR, both tagged with the commit SHA that triggered the deployment:
+
+```
+frontend:  d5b53abe4ad5e8f56d36e9b48c2e54fabda8af1e
+backend:   d5b53abe4ad5e8f56d36e9b48c2e54fabda8af1e
+```
+
+The full capture, including the live `/movies` JSON response, is in
+[screenshots/cluster-and-ecr.txt](screenshots/cluster-and-ecr.txt).
+
+---
+
+
 You've been brought on as the DevOps resource for a development team that manages a web application that is a catalog of Movie Picture movies. They're in dire need of automating their development workflows in hopes of accelerating their release cycle. They'd like to use Github Actions to automate testing, building and deploying their applications to an existing Kubernetes cluster.
 
 The team's project is comprised of 2 applications.

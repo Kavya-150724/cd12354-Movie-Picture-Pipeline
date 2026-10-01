@@ -1,0 +1,48 @@
+Movie Picture Pipeline - deployment evidence
+Repo:    https://github.com/Kavya-150724/cd12354-Movie-Picture-Pipeline
+Account: 364649219390   Region: us-east-1   Cluster: cluster (Kubernetes 1.32)
+Captured: 2026-10-01 11:02 UTC
+
+==============================================================
+LIVE APPLICATION URLS
+==============================================================
+Frontend: http://a53a83357edce41b6ba74346d6c6cc80-1937546710.us-east-1.elb.amazonaws.com
+Backend:  http://ab8804e62f83b427ba17cca6b2216a3e-2089875488.us-east-1.elb.amazonaws.com/movies
+
+==============================================================
+KUBERNETES DEPLOYMENT  (kubectl get deployments,svc,pods)
+==============================================================
+NAME                       READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/backend    1/1     1            1           6m51s
+deployment.apps/frontend   1/1     1            1           3m25s
+
+NAME                 TYPE           CLUSTER-IP       EXTERNAL-IP                                                               PORT(S)        AGE
+service/backend      LoadBalancer   172.20.49.163    ab8804e62f83b427ba17cca6b2216a3e-2089875488.us-east-1.elb.amazonaws.com   80:32718/TCP   6m51s
+service/frontend     LoadBalancer   172.20.167.167   a53a83357edce41b6ba74346d6c6cc80-1937546710.us-east-1.elb.amazonaws.com   80:31576/TCP   3m25s
+service/kubernetes   ClusterIP      172.20.0.1       <none>                                                                    443/TCP        27m
+
+NAME                            READY   STATUS    RESTARTS   AGE
+pod/backend-6f8ff95969-29wtg    1/1     Running   0          6m51s
+pod/frontend-84894f5789-7hph9   1/1     Running   0          3m25s
+
+==============================================================
+BACKEND API RESPONSE  (curl http://<backend-lb>/movies)
+==============================================================
+{"movies":[{"id":"123","title":"Top Gun: Maverick"},{"id":"456","title":"Sonic the Hedgehog"},{"id":"789","title":"A Quiet Place"}]}
+
+
+==============================================================
+IMAGES IN ECR  (tagged with the git commit SHA)
+==============================================================
+frontend:  d5b53abe4ad5e8f56d36e9b48c2e54fabda8af1e
+backend:   d5b53abe4ad5e8f56d36e9b48c2e54fabda8af1e
+
+==============================================================
+GITHUB ACTIONS RUNS
+==============================================================
+completed	success	Frontend Continuous Deployment	Frontend Continuous Deployment	main	workflow_dispatch	36852307728	2m18s	2026-10-01T10:57:13Z
+completed	success	Backend Continuous Integration	Backend Continuous Integration	main	workflow_dispatch	36852127005	1m5s	2026-10-01T10:55:26Z
+completed	success	Use Debian 12 base image, bullseye packages are no longer available	Backend Continuous Deployment	main	push	36852015450	1m37s	2026-10-01T10:54:21Z
+completed	success	Frontend Continuous Integration	Frontend Continuous Integration	main	workflow_dispatch	36851819479	2m16s	2026-10-01T10:52:24Z
+completed	failure	Backend Continuous Integration	Backend Continuous Integration	main	workflow_dispatch	36851815947	51s	2026-10-01T10:52:22Z
+completed	failure	Backend Continuous Deployment	Backend Continuous Deployment	main	workflow_dispatch	36851702037	57s	2026-10-01T10:51:13Z

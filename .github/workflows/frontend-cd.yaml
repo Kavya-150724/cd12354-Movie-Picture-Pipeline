@@ -87,8 +87,9 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      # The cluster runs Kubernetes 1.25, so pin kubectl rather than using the
-      # much newer version preinstalled on the runner (version skew is ±1 minor).
+      # The cluster runs Kubernetes 1.32, so pin kubectl to match rather than
+      # using the much newer version preinstalled on the runner. kubectl only
+      # supports one minor version of skew from the cluster.
       - name: Setup kubectl
         uses: azure/setup-kubectl@v4
         with:
